@@ -1,0 +1,96 @@
+service: lambda-s3-step-functions-test
+frameworkVersion: '3'
+
+useDotenv: true
+
+provider:
+  name: aws
+  runtime: nodejs18.x
+  stage: ${self:custom.stage}
+  region: us-east-1
+  iam: 
+    role:
+      statements:
+        - Effect: Allow
+          Action:
+            - lambda:*
+            - iam:*
+            - s3:*
+            - apigateway:*
+            - dynamodb:*
+          Resource:
+            - '*'
+
+plugins:
+  - serverless-esbuild
+  - serverless-offline
+  - serverless-s3-local
+  - serverless-step-functions
+  - serverless-step-functions-offline
+
+custom:
+  stage: ${opt:stage, 'dev'}
+  serverless-offline:
+    httpPort: 4000
+  dotenv:
+    dotenv_path: .env.${opt:stage, 'dev'}
+  s3: # serverless-s3-local config
+    host: localhost
+    directory: ./.buckets
+    cors: ./s3-cors.xml
+    allowMismatchedSignatures: true
+  stepFunctionsOffline:
+    stateMachineName: pdfValidationStateMachine
+
+resources:
+  Resources:
+    HoldingAreaBucket:
+      Type: AWS::S3::Bucket
+      Properties:
+        BucketName: holding-area-bucket
+        CorsConfiguration:
+          CorsRules:
+            - AllowedOrigins:
+                - 'http://localhost:3000'
+              AllowedHeaders:
+                - '*'
+              AllowedMethods:
+                - PUT
+              MaxAge: 3000
+
+    ValidatedFilesBucket:
+      Type: AWS::S3::Bucket
+      Properties:
+        BucketName: validated-files-bucket
+
+functions:
+  getPresignedUrl:
+    handler: ./lambda/getPresignedUrl.handler
+    events:
+      - http:
+          path: /assets/{key}
+          method: get
+          cors: true
+          request:
+            parameters:
+              paths:
+                key: true           
+  testStepFunction:
+    handler: index.handler
+
+stepFunctions:
+  stateMachines:
+    pdfValidationStateMachine:
+      events:
+      - s3:
+          bucket: holding-area-bucket
+          event: s3:ObjectCreated:*
+      definition:
+        Comment: "PDF validation state machine"
+        StartAt: ProcessPDF
+        States:
+          ProcessPDF:
+            Type: Task
+            Resource: "arn:aws:lambda:#{AWS::Region}:#{AWS::AccountId}:function:${self:service}-${opt:stage}-testStepFunction"
+            End: true
+        TimeoutSeconds: 300
