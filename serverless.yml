@@ -75,16 +75,16 @@ functions:
             parameters:
               paths:
                 key: true           
-  testStepFunction:
-    handler: index.handler
+  triggerPdfValidation:
+    handler: ./lambda/triggerPdfValidation.handler
+    events:
+      - s3:
+          bucket: holding-area-bucket
+          event: s3:ObjectCreated:*
 
 stepFunctions:
   stateMachines:
     pdfValidationStateMachine:
-      events:
-      - s3:
-          bucket: holding-area-bucket
-          event: s3:ObjectCreated:*
       definition:
         Comment: "PDF validation state machine"
         StartAt: ProcessPDF
